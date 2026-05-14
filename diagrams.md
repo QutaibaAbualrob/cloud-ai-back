@@ -506,7 +506,7 @@ erDiagram
         int user_id FK
         int email_account_id FK
         int category_id FK "nullable"
-        string external_id "provider message ID"
+        string external_id
         string thread_id
         string sender_name
         string sender_email
@@ -515,16 +515,16 @@ erDiagram
         datetime received_at
         text body_text
         text body_html
-        string snippet "300 chars"
-        float confidence_score "0.0-1.0"
+        string snippet
+        float confidence_score
         bool is_ai_classified
         bool is_read
         bool is_archived
         datetime created_at
         datetime updated_at
-        index "(user, category)"
-        index "(user, received_at)"
-        index "(external_id)"
+        string idx_user_category "composite(user,category)"
+        string idx_user_received "composite(user,received_at)"
+        string idx_external_id "index on external_id"
     }
 
     FeedbackLog {
@@ -538,7 +538,7 @@ erDiagram
         string email_snippet
         bool is_applied
         datetime created_at
-        index "(user, is_applied)"
+        string idx_user_applied "composite(user,is_applied)"
     }
 ```
 
@@ -607,15 +607,13 @@ graph LR
         AnPending["GET /api/analytics/feedback_pending/"]
     end
 
-    Login -->|get token| Emails
-    Login --> Categories
-    Login --> Accounts
+    Auth -->|authenticated| Emails
+    Auth --> Categories
+    Auth --> Accounts
     
     style Auth fill:#dbeafe,stroke:#2563EB
     style Emails fill:#dcfce7,stroke:#16A34A
     style Analytics fill:#fef3c7,stroke:#D97706
-
-    linkStyle 0,1,2,3 stroke:#94A3B8,stroke-width:1
 ```
 
 ### Endpoint Summary
