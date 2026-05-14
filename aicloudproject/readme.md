@@ -1,0 +1,1 @@
+This repository includes all the endpoints users need for registration, login, logout, and password reset.
