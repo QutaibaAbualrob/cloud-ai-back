@@ -173,3 +173,36 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# Celery Configuration
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_BEAT_SCHEDULE = {
+    'sync-emails-every-15-minutes': {
+        'task': 'apis.tasks.sync_all_accounts',
+        'schedule': 900.0,  # 15 minutes
+    },
+    'retrain-classifiers-daily': {
+        'task': 'apis.tasks.retrain_classifiers',
+        'schedule': 86400.0,  # Daily
+    },
+}
+
+# Gmail OAuth 2.0 settings
+GOOGLE_OAUTH2_CLIENT_ID = ''
+GOOGLE_OAUTH2_CLIENT_SECRET = ''
+GOOGLE_OAUTH2_REDIRECT_URI = 'http://localhost:8000/api/accounts/gmail/callback/'
+
+GMAIL_SCOPES = [
+    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/gmail.modify',
+]
+
+# NLP Classifier settings
+CLASSIFIER_MODEL = 'facebook/bart-large-mnli'
+CLASSIFIER_CONFIDENCE_THRESHOLD = 0.4

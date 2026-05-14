@@ -1,4 +1,4 @@
-# Django backend — No More Cheaters
+# Django backend — CloudAI Email Intelligence Platform
 # Use Python 3.10–3.13. Install when online: pip install -r requirements.txt
 
 djangorestframework
@@ -6,3 +6,16 @@ dj-rest-auth
 django-allauth
 django-cors-headers
 requests
+django-filter
+google-api-python-client
+google-auth-oauthlib
+celery
+redis
+sentence-transformers
+torch
+transformers
+scikit-learn
+gunicorn
+uvicorn
+dj-database-url
+psycopg2-binary
