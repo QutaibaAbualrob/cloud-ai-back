@@ -1,28 +1,25 @@
 """
-Learning Element: retrains the per-user classifier from accumulated feedback.
+Learning Element: builds user preference memory from feedback evidence.
 
-The Learning Element collects FeedbackLog records that haven't yet been
-applied, builds a training dataset of (email_features -> corrected_category)
-pairs, and trains a lightweight per-user classifier using TF-IDF vectorization
-+ Logistic Regression.
+Instead of training ML models, the Learning Element collects FeedbackLog
+records and builds structured "preference hints" for each user. These
+hints are passed to the LLM API during classification so it can account
+for the user's personal correction history.
 
 Architecture:
-    Each user gets their own serialised model file on disk:
-        models/user_{id}_classifier.pkl
+    FeedbackLog records are treated as evidence of user preference, not
+    as training data. The preference memory extracts patterns from
+    corrections — for example: "when email is from amazon.com, user
+    prefers 'Shopping' over 'Updates'".
 
-    When a user has accumulated N or more unapplied corrections, the
-    periodic `retrain_all_users()` task triggers per-user retraining.
-
-    Once a model is trained, the consumed FeedbackLog records are marked
-    `is_applied = True` so they aren't retrained on repeatedly.
+    The hints are injected into the LLM prompt as additional context,
+    guiding the LLM toward the user's preferred categorisation style.
 """
 
 import logging
-import pickle
-from pathlib import Path
-from typing import List, Tuple
+from collections import defaultdict
+from typing import List
 
-from django.conf import settings
 from django.contrib.auth.models import User
 from django.db.models import Count
 
@@ -30,239 +27,157 @@ from .models import FeedbackLog
 
 logger = logging.getLogger(__name__)
 
-# Directory for per-user model files
-MODEL_DIR = Path(settings.BASE_DIR) / "models"
+
+# ── preference memory ──────────────────────────────────────────────
 
 
-class UserClassifier:
+class UserPreferenceMemory:
     """
-    Lightweight per-user classifier trained on personal correction history.
+    Persistent preference memory built from a user's correction history.
 
-    Uses a TF-IDF vectoriser + multinomial Logistic Regression for fast,
-    CPU-friendly retraining. Models are serialised to disk and loaded
-    on demand.
+    Instead of retraining a model, this memory stores structured evidence
+    about what categories the user prefers for specific sender domains,
+    subjects, and other email features.
 
-    Usage:
-        clf = UserClassifier(user_id=42)
-        if clf.load():
-            category, confidence = clf.predict("some email text")
+    The memory is exposed as a human-readable "hints" string that gets
+    injected into the LLM prompt during classification.
     """
 
-    def __init__(self, user_id: int):
-        self.user_id = user_id
-        self.model_path = MODEL_DIR / f"user_{user_id}_classifier.pkl"
-        self._vectorizer = None
-        self._classifier = None
-        self._labels: List[str] = []
+    def __init__(self, user: User):
+        self.user = user
+        self._hints: List[str] = []
 
-    # ── persistence ─────────────────────────────────────────────
-
-    def save(self) -> None:
-        """Serialise the current model to disk."""
-        MODEL_DIR.mkdir(parents=True, exist_ok=True)
-        with open(self.model_path, "wb") as f:
-            pickle.dump(
-                {
-                    "vectorizer": self._vectorizer,
-                    "classifier": self._classifier,
-                    "labels": self._labels,
-                },
-                f,
-            )
-        logger.debug("Saved classifier for user %s (%s)", self.user_id, self.model_path)
-
-    def load(self) -> bool:
-        """Load a previously-saved model from disk. Returns True on success."""
-        if not self.model_path.exists():
-            return False
-        with open(self.model_path, "rb") as f:
-            data = pickle.load(f)
-        self._vectorizer = data["vectorizer"]
-        self._classifier = data["classifier"]
-        self._labels = data["labels"]
-        logger.debug("Loaded classifier for user %s", self.user_id)
-        return True
-
-    def exists(self) -> bool:
-        """Whether a serialised model file exists on disk."""
-        return self.model_path.exists()
-
-    # ── training ────────────────────────────────────────────────
-
-    def train(self, texts: List[str], labels: List[str]) -> bool:
+    def build(self) -> None:
         """
-        Train the classifier from parallel lists of texts and labels.
-
-        Args:
-            texts:  Feature strings (e.g. "sender_domain:example.com subject:Hello").
-            labels: Corresponding corrected category names.
-
-        Returns:
-            True if training succeeded (at least 5 samples needed).
+        Query all FeedbackLog records for this user and extract
+        preference patterns.
         """
-        if len(texts) < 5:
-            logger.warning(
-                "User %s: insufficient training data (%s samples, need 5)",
-                self.user_id,
-                len(texts),
-            )
-            return False
+        feedbacks = FeedbackLog.objects.filter(
+            user=self.user,
+        ).select_related("predicted_category", "corrected_category")
 
-        from sklearn.feature_extraction.text import TfidfVectorizer
-        from sklearn.linear_model import LogisticRegression
+        if not feedbacks.exists():
+            self._hints = []
+            return
 
-        self._vectorizer = TfidfVectorizer(
-            max_features=5000,
-            ngram_range=(1, 2),
-            stop_words="english",
-        )
-        X = self._vectorizer.fit_transform(texts)
+        # ── extract patterns ─────────────────────────────────────
 
-        self._classifier = LogisticRegression(
-            max_iter=1000,
-            multi_class="multinomial",
-            random_state=42,
-        )
-        self._classifier.fit(X, labels)
-        self._labels = list(self._classifier.classes_)
+        # Pattern 1: sender domain → preferred category
+        domain_pref: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        # Pattern 2: predicted → corrected (user disagrees with AI)
+        override_count: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        # Pattern 3: frequency of each corrected category
+        category_freq: dict[str, int] = defaultdict(int)
 
-        self.save()
+        for fb in feedbacks:
+            predicted = fb.predicted_category.name if fb.predicted_category else "None"
+            corrected = fb.corrected_category.name if fb.corrected_category else "None"
 
+            # Sender domain preference
+            if fb.email_sender and "@" in fb.email_sender:
+                domain = fb.email_sender.split("@", 1)[1].lower()
+                domain_pref[domain][corrected] += 1
+
+            # Override patterns
+            if predicted != corrected:
+                override_count[predicted][corrected] += 1
+
+            # Category frequency
+            if corrected != "None":
+                category_freq[corrected] += 1
+
+        # ── build hints ───────────────────────────────────────────
+
+        hints: List[str] = []
+        total = feedbacks.count()
+        hints.append(f"Based on {total} past corrections by this user:")
+
+        # Strong sender-domain preferences
+        for domain, cats in sorted(domain_pref.items()):
+            best_cat = max(cats, key=cats.get)
+            best_count = cats[best_cat]
+            if best_count >= 2:  # at least 2 corrections for confidence
+                hints.append(
+                    f"- Emails from {domain} → usually corrects to '{best_cat}' "
+                    f"({best_count} time{'s' if best_count > 1 else ''})"
+                )
+
+        # Common overrides (user disagrees with AI on these)
+        for predicted, corrections in sorted(override_count.items()):
+            for corrected, count in sorted(corrections.items()):
+                if count >= 2:
+                    hints.append(
+                        f"- Often moves '{predicted}' → '{corrected}' "
+                        f"({count} time{'s' if count > 1 else ''})"
+                    )
+
+        # Limit hints to avoid overflowing the LLM prompt
+        if len(hints) > 15:
+            hints = hints[:15]
+            hints.append(f"(and {len(hints) - 15} more patterns)")
+
+        self._hints = hints
         logger.info(
-            "User %s: trained classifier with %s samples, %s classes",
-            self.user_id,
-            len(texts),
-            len(self._labels),
+            "Built preference memory for user %s: %s patterns from %s corrections",
+            self.user.username,
+            len(hints),
+            total,
         )
-        return True
 
-    # ── inference ───────────────────────────────────────────────
+    def get_hints(self) -> str:
+        """Return the preference hints as a formatted string for LLM prompts."""
+        return "\n".join(self._hints)
 
-    def predict(self, text: str) -> Tuple[str, float]:
-        """
-        Predict the category for a piece of email text.
-
-        Returns:
-            (category_name, confidence_score) — score is 0.0–1.0.
-            Returns ("", 0.0) if no model is loaded.
-        """
-        if self._classifier is None:
-            return "", 0.0
-
-        X = self._vectorizer.transform([text])
-        probs = self._classifier.predict_proba(X)[0]
-        best_idx = probs.argmax()
-        return self._labels[best_idx], float(probs[best_idx])
+    @property
+    def has_hints(self) -> bool:
+        """Whether this memory contains any preference hints."""
+        return len(self._hints) > 0
 
 
-# ── dataset helpers ──────────────────────────────────────────────
+# ── orchestration ──────────────────────────────────────────────────
 
-def build_training_dataset(user: User) -> Tuple[List[str], List[str]]:
+
+def build_preference_memory(user: User) -> UserPreferenceMemory:
     """
-    Build a training dataset from unapplied FeedbackLog records for a user.
+    Build preference memory for a single user.
 
-    Returns:
-        (texts, labels) — parallel lists of feature strings and category names.
-        Returns ([], []) if no unapplied feedback exists.
+    This is the equivalent of the old `retrain_for_user` — it refreshes
+    the preference evidence from the latest FeedbackLog records.
     """
-    feedbacks = FeedbackLog.objects.filter(
-        user=user,
-        is_applied=False,
-    ).select_related("corrected_category")
-
-    texts: List[str] = []
-    labels: List[str] = []
-
-    for fb in feedbacks:
-        # Build a composite feature string from the correction snapshot
-        parts: List[str] = []
-        if fb.email_sender and "@" in fb.email_sender:
-            domain = fb.email_sender.split("@", 1)[1]
-            parts.append(f"sender_domain:{domain}")
-        if fb.email_subject:
-            parts.append(f"subject:{fb.email_subject}")
-        if fb.email_snippet:
-            # Only use up to 500 chars of snippet for training
-            snippet = fb.email_snippet[:500].replace("\n", " ")
-            parts.append(f"snippet:{snippet}")
-
-        text = " ".join(parts)
-        if text and fb.corrected_category:
-            texts.append(text)
-            labels.append(fb.corrected_category.name)
-
-    return texts, labels
+    memory = UserPreferenceMemory(user)
+    memory.build()
+    return memory
 
 
-# ── orchestration ────────────────────────────────────────────────
-
-def retrain_for_user(user: User, min_samples: int = 10) -> bool:
+def refresh_all_memories(min_corrections: int = 1) -> int:
     """
-    Retrain the per-user classifier if enough unapplied feedback exists.
+    Periodic task entry point: identify users with feedback history
+    and log that their preference memory is available.
+
+    Unlike the old retraining approach, preference memory is built
+    on-the-fly during classification. This function exists as a
+    heartbeat/logging hook for the Celery Beat schedule.
 
     Args:
-        user: Django User instance.
-        min_samples: Minimum unapplied FeedbackLog records to trigger training.
+        min_corrections: Minimum corrections to log about.
 
     Returns:
-        True if retraining occurred, False otherwise.
-    """
-    texts, labels = build_training_dataset(user)
-
-    if len(texts) < min_samples:
-        return False
-
-    classifier = UserClassifier(user.id)
-    success = classifier.train(texts, labels)
-
-    if success:
-        # Mark all consumed feedback as applied so they aren't reused
-        count = FeedbackLog.objects.filter(
-            user=user,
-            is_applied=False,
-        ).update(is_applied=True)
-        logger.info(
-            "User %s: retrained and applied %s feedback records",
-            user.username,
-            count,
-        )
-
-    return success
-
-
-def retrain_all_users(min_samples: int = 10, min_corrections: int = 1) -> int:
-    """
-    Periodic task entry point: check all users and retrain those with
-    sufficient unapplied feedback.
-
-    Args:
-        min_samples: Minimum unapplied feedback records to trigger retraining.
-        min_corrections: Minimum corrections to even consider a user
-                         (optimisation filter to avoid querying everyone).
-
-    Returns:
-        Number of users whose classifiers were retrained.
+        Number of users with available preference memory.
     """
     users_with_feedback = (
         FeedbackLog.objects
-        .filter(is_applied=False)
         .values("user")
         .annotate(count=Count("id"))
         .filter(count__gte=min_corrections)
     )
 
-    retrained = 0
-    for entry in users_with_feedback:
-        try:
-            user = User.objects.get(id=entry["user"])
-            if retrain_for_user(user, min_samples=min_samples):
-                retrained += 1
-        except User.DoesNotExist:
-            continue
-
-    if retrained:
-        logger.info("Retrained classifiers for %s users", retrained)
+    user_count = users_with_feedback.count()
+    if user_count:
+        logger.info(
+            "Preference memory available for %s users",
+            user_count,
+        )
     else:
-        logger.debug("No users needed retraining this cycle")
+        logger.debug("No users have accumulated feedback yet")
 
-    return retrained
+    return user_count

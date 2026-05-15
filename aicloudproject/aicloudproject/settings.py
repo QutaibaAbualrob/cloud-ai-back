@@ -190,8 +190,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apis.tasks.sync_all_accounts',
         'schedule': 900.0,  # 15 minutes
     },
-    'retrain-classifiers-daily': {
-        'task': 'apis.tasks.retrain_classifiers',
+    'generate-daily-digests': {
+        'task': 'apis.tasks.generate_daily_digest_for_all_users',
+        'schedule': 86400.0,  # Daily at midnight-ish
+    },
+    'refresh-preference-memories-daily': {
+        'task': 'apis.tasks.refresh_preference_memories',
         'schedule': 86400.0,  # Daily
     },
 }
@@ -206,6 +210,7 @@ GMAIL_SCOPES = [
     'https://www.googleapis.com/auth/gmail.modify',
 ]
 
-# NLP Classifier settings
-CLASSIFIER_MODEL = 'facebook/bart-large-mnli'
-CLASSIFIER_CONFIDENCE_THRESHOLD = 0.4
+# LLM API settings (for categorisation + summarisation)
+LLM_API_URL = ''  # e.g. 'https://api.openai.com/v1/chat/completions'
+LLM_API_KEY = ''  # API key — set via environment variable in production
+LLM_MODEL = 'gpt-4o-mini'

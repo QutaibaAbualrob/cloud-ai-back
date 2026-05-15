@@ -2,7 +2,7 @@
 Text preprocessing utilities for email NLP pipeline.
 
 Cleans email bodies, strips signatures and quoted replies,
-and prepares normalized feature strings for the classifier.
+and prepares normalized text for LLM API input.
 """
 
 import re
@@ -87,6 +87,35 @@ def strip_signature(text: str) -> str:
 def normalize_whitespace(text: str) -> str:
     """Collapse multiple whitespace characters into single spaces."""
     return re.sub(r'\s+', ' ', text).strip()
+
+
+def extract_clean_body(email_instance) -> str:
+    """
+    Extract fully cleaned plain text from an Email instance,
+    ready for LLM input.
+
+    Applies the full pipeline: HTML strip, quoted-reply removal,
+    signature removal, and whitespace normalization.
+    Truncates to 4000 characters to fit LLM context windows.
+
+    Args:
+        email_instance: An Email model instance.
+
+    Returns:
+        Cleaned plain text string, or empty string if no body.
+    """
+    text = email_instance.body_text or ''
+    if not text:
+        return email_instance.snippet or ''
+
+    text = strip_html(text)
+    text = strip_quoted_reply(text)
+    text = strip_signature(text)
+    text = normalize_whitespace(text)
+    # Truncate for LLM context efficiency
+    if len(text) > 4000:
+        text = text[:4000]
+    return text
 
 
 def extract_email_features(email_instance) -> str:

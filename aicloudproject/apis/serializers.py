@@ -110,11 +110,12 @@ class EmailListSerializer(serializers.ModelSerializer):
             "category", "category_name", "category_color",
             "confidence_score", "is_ai_classified",
             "is_read", "is_archived",
+            "summary", "priority", "is_urgent", "has_deadline",
         ]
 
 
 class EmailDetailSerializer(serializers.ModelSerializer):
-    """Full serializer for email detail — includes body content."""
+    """Full serializer for email detail — includes body content and LLM analysis."""
 
     category_name = serializers.CharField(
         source="category.name", read_only=True, default=None
@@ -137,6 +138,8 @@ class EmailDetailSerializer(serializers.ModelSerializer):
             "confidence_score", "is_ai_classified",
             "is_read", "is_archived",
             "account_email", "created_at",
+            "summary", "priority", "is_urgent",
+            "has_deadline", "deadline_date", "action_items",
         ]
         read_only_fields = ["id", "created_at"]
 

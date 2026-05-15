@@ -30,6 +30,11 @@ from .metrics import (
     category_distribution,
     unapplied_feedback_count,
 )
+from .digest import (
+    generate_daily_digest,
+    generate_category_digest,
+    get_urgent_summary,
+)
 
 
 # ── profile ────────────────────────────────────────────────────────
@@ -248,6 +253,33 @@ class AnalyticsViewSet(viewsets.ViewSet):
     def distribution(self, request):
         """Category breakdown for pie charts."""
         return Response(category_distribution(request.user))
+
+    @action(detail=False, methods=["get"])
+    def digest(self, request):
+        """Generate an on-demand daily digest for the current user."""
+        days = int(request.query_params.get("days", 1))
+        digest = generate_daily_digest(request.user, days=days)
+        if not digest:
+            return Response({"message": "No data for digest yet"})
+        return Response(digest)
+
+    @action(detail=False, methods=["get"])
+    def category_digest(self, request):
+        """Generate a category-specific summary."""
+        slug = request.query_params.get("slug", "")
+        if not slug:
+            return Response({"error": "Missing 'slug' parameter"}, status=400)
+        days = int(request.query_params.get("days", 7))
+        result = generate_category_digest(request.user, slug, days=days)
+        if not result:
+            return Response({"message": "No data for this category yet"})
+        return Response({"slug": slug, "summary": result})
+
+    @action(detail=False, methods=["get"])
+    def urgent(self, request):
+        """Get all currently flagged urgent emails."""
+        items = get_urgent_summary(request.user)
+        return Response({"urgent_count": len(items), "items": items})
 
     @action(detail=False, methods=["get"])
     def feedback_pending(self, request):

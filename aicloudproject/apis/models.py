@@ -89,12 +89,11 @@ class EmailAccount(models.Model):
 class Category(models.Model):
     """
     A user-specific email category.
-    Built-in defaults (Business, Work, Family, Promotions, Social, Updates)
-    are created per-user. Users can add custom categories.
+    Built-in defaults are created per-user. Users can add custom categories.
     """
 
-    # Built-in category slugs
-    BUILTIN_SLUGS = ["business", "work", "family", "promotions", "social", "updates"]
+    # Built-in category slugs — aligned with multi-inbox intelligence use case
+    BUILTIN_SLUGS = ["work", "personal", "finance", "education", "notifications", "promotions", "miscellaneous"]
 
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="categories"
@@ -158,6 +157,34 @@ class Email(models.Model):
     body_html = models.TextField(blank=True, help_text="Original HTML body")
     snippet = models.CharField(max_length=300, blank=True)
 
+    # LLM-generated summary
+    summary = models.TextField(
+        blank=True, help_text="AI-generated one-sentence summary of the email content"
+    )
+
+    # Priority / urgency / deadline (extracted by LLM)
+    PRIORITY_CHOICES = [
+        ("low", "Low"),
+        ("medium", "Medium"),
+        ("high", "High"),
+    ]
+    priority = models.CharField(
+        max_length=10, choices=PRIORITY_CHOICES, blank=True, default="",
+        help_text="AI-assigned priority: low / medium / high"
+    )
+    is_urgent = models.BooleanField(
+        default=False, help_text="AI-flagged as urgent or time-sensitive"
+    )
+    has_deadline = models.BooleanField(
+        default=False, help_text="Whether the email mentions a deadline or due date"
+    )
+    deadline_date = models.DateTimeField(
+        null=True, blank=True, help_text="Extracted deadline or due date if present"
+    )
+    action_items = models.TextField(
+        blank=True, help_text="AI-extracted action items, tasks, or next steps (JSON list or plain text)"
+    )
+
     # AI classification metadata
     confidence_score = models.FloatField(
         null=True, blank=True, help_text="0.0–1.0 confidence from AI classifier"
@@ -218,7 +245,7 @@ class FeedbackLog(models.Model):
 
     # Metadata
     is_applied = models.BooleanField(
-        default=False, help_text="Whether this feedback has been incorporated into re-training"
+        default=False, help_text="Whether this feedback has been incorporated into preference memory"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -230,3 +257,51 @@ class FeedbackLog(models.Model):
 
     def __str__(self):
         return f"Feedback #{self.id}: {self.predicted_category} → {self.corrected_category}"
+
+
+class EmailThread(models.Model):
+    """
+    Tracks the context and running summary of an email conversation thread.
+
+    Updated as new emails arrive in the same thread. Provides the LLM
+    with conversation history so it can understand evolving topics,
+    ongoing discussions, and context across messages.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="threads"
+    )
+    thread_id = models.CharField(
+        max_length=500, help_text="Provider-specific thread identifier (from Gmail)"
+    )
+    email_account = models.ForeignKey(
+        EmailAccount, on_delete=models.CASCADE, related_name="threads"
+    )
+
+    # Latest subject line (may change as thread evolves)
+    subject = models.CharField(max_length=1000, blank=True)
+
+    # Participants tracked as comma-separated emails (e.g. "alice@co, bob@co")
+    participants = models.TextField(blank=True)
+
+    # Running summary — updated by LLM digest task as new emails arrive
+    summary = models.TextField(
+        blank=True, help_text="AI-generated running summary of the entire thread"
+    )
+
+    # Latest state
+    latest_received_at = models.DateTimeField(null=True, blank=True)
+    email_count = models.PositiveIntegerField(default=0, help_text="Number of emails in this thread")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("user", "thread_id")]
+        ordering = ["-latest_received_at"]
+        indexes = [
+            models.Index(fields=["user", "latest_received_at"]),
+        ]
+
+    def __str__(self):
+        return f"Thread #{self.thread_id[:20]} — {self.subject[:50]}"
