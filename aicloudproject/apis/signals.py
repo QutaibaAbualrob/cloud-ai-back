@@ -48,11 +48,6 @@ def detect_category_override(sender, instance, **kwargs):
     if old_instance.category_id == instance.category_id:
         return
 
-    # Only log corrections of AI-assigned categories
-    # If the old email wasn't AI-classified, this is just user setup, not a correction
-    if not old_instance.is_ai_classified:
-        return
-
     # Avoid creating duplicate FeedbackLog records for the same correction
     # (handles multiple rapid saves or signal re-entrance)
     if FeedbackLog.objects.filter(

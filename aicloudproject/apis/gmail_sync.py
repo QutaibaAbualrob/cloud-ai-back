@@ -258,6 +258,7 @@ def sync_gmail_account(email_account: EmailAccount, max_emails: int = 100) -> in
                 headers = extract_headers(full_msg)
                 body_text, body_html, snippet = extract_body(full_msg)
                 received_at = parse_date(headers.get('date'))
+                gmail_labels = full_msg.get('labelIds', [])
 
                 Email.objects.create(
                     user=email_account.user,
@@ -272,6 +273,7 @@ def sync_gmail_account(email_account: EmailAccount, max_emails: int = 100) -> in
                     body_text=body_text,
                     body_html=body_html,
                     snippet=snippet,
+                    gmail_labels=gmail_labels,
                 )
 
                 existing_ids.add(msg_id)

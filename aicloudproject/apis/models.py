@@ -158,6 +158,16 @@ class Email(models.Model):
     body_html = models.TextField(blank=True, help_text="Original HTML body")
     snippet = models.CharField(max_length=300, blank=True)
 
+    # Gmail labels / categories from the provider
+    gmail_labels = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Provider label IDs from Gmail"
+            " (e.g. ['INBOX', 'IMPORTANT', 'CATEGORY_PROMOTIONS'])"
+        ),
+    )
+
     # LLM-generated summary
     summary = models.TextField(
         blank=True, help_text="AI-generated one-sentence summary of the email content"

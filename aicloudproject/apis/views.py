@@ -218,6 +218,30 @@ class EmailViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+    @action(detail=False, methods=["post"])
+    def categorize_selected(self, request):
+        """
+        POST /api/emails/categorize_selected/
+
+        Body: {"email_ids": [1, 2, 3, ...]}
+
+        Triggers LLM classification for specific emails the user selected
+        in the frontend. Each email gets categorized, summarized, and
+        flagged as AI-classified.
+        """
+        email_ids = request.data.get("email_ids", [])
+        if not email_ids or not isinstance(email_ids, list):
+            return Response(
+                {"error": "email_ids is required and must be a non-empty list"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        from .tasks import classify_uncategorized_emails
+        classify_uncategorized_emails.delay(request.user.id, email_ids=email_ids)
+        return Response({
+            "status": "classification_enqueued",
+            "email_count": len(email_ids),
+        })
+
 
 # ── feedback ──────────────────────────────────────────────────────
 

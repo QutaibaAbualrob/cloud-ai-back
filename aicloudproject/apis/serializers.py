@@ -118,7 +118,7 @@ class EmailListSerializer(serializers.ModelSerializer):
         model = Email
         fields = [
             "id", "sender_name", "sender_email", "subject",
-            "snippet", "received_at",
+            "snippet", "gmail_labels", "received_at",
             "category", "category_name", "category_color",
             "confidence_score", "is_ai_classified",
             "is_read", "is_archived",

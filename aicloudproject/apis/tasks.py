@@ -41,9 +41,6 @@ def sync_account(account_id: int):
     try:
         count = sync_func(account)
         logger.info("Synced %s emails for account %s (%s)", count, account_id, account.email_address)
-        if count > 0:
-            # Trigger LLM classification + summarisation for new emails
-            classify_uncategorized_emails.delay(account.user_id)
     except Exception as e:
         logger.error("Sync failed for account %s: %s", account_id, e, exc_info=True)
         raise  # re-raise so Celery marks the task as FAILURE (not "succeeded")
@@ -64,9 +61,13 @@ def sync_all_accounts():
 
 
 @shared_task
-def classify_uncategorized_emails(user_id: int):
+def classify_uncategorized_emails(user_id: int, email_ids: list = None):
     """
-    Classify all uncategorized emails for a user via the LLM API.
+    Classify emails via the LLM API.
+
+    When `email_ids` is provided, classifies those specific emails (user
+    selected them in the UI). Otherwise classifies all uncategorized emails
+    (backward-compatible behaviour).
 
     The LLM both categorises and summarises each email. The user's
     preference memory (built from past FeedbackLog corrections) is
@@ -83,12 +84,18 @@ def classify_uncategorized_emails(user_id: int):
     except User.DoesNotExist:
         return
 
-    uncategorized = Email.objects.filter(
-        user=user,
-        is_ai_classified=False,
-    ).order_by('-received_at')
+    if email_ids:
+        emails = Email.objects.filter(
+            user=user,
+            id__in=email_ids,
+        ).order_by('-received_at')
+    else:
+        emails = Email.objects.filter(
+            user=user,
+            is_ai_classified=False,
+        ).order_by('-received_at')
 
-    if not uncategorized.exists():
+    if not emails.exists():
         return
 
     categories = Category.objects.filter(user=user)
@@ -101,10 +108,12 @@ def classify_uncategorized_emails(user_id: int):
 
     # Classify via LLM — also generates summaries
     classifier = get_classifier()
+    batch_size = len(emails) if email_ids else 20
     count = classifier.classify_batch(
-        uncategorized,
+        emails,
         categories,
         preference_hints=preference_hints,
+        batch_size=batch_size,
     )
 
     logger.info(
@@ -117,7 +126,7 @@ def classify_uncategorized_emails(user_id: int):
     # Update thread context for each newly classified email
     from .digest import update_thread_context
 
-    for email_instance in uncategorized[:count or 20]:
+    for email_instance in emails[:count or 20]:
         if email_instance.thread_id:
             update_thread_context(email_instance)
 
