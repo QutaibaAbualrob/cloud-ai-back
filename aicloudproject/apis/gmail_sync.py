@@ -31,7 +31,7 @@ def get_gmail_service(email_account: EmailAccount):
         email_account: EmailAccount instance with valid OAuth tokens.
 
     Returns:
-        googleapiclient.discovery.Resource or None if tokens are invalid.
+        (googleapiclient.discovery.Resource, Credentials) or (None, None) if tokens are invalid.
     """
     # Bail early if tokens are missing — no point building credentials
     # that can't survive an API call (google-auth auto-refreshes on 401,
@@ -45,7 +45,7 @@ def get_gmail_service(email_account: EmailAccount):
             "present" if email_account.access_token else "missing",
             "present" if email_account.refresh_token else "missing",
         )
-        return None
+        return None, None
 
     creds = Credentials(
         token=email_account.access_token,
@@ -54,6 +54,7 @@ def get_gmail_service(email_account: EmailAccount):
         client_id=settings.GOOGLE_OAUTH2_CLIENT_ID or None,
         client_secret=settings.GOOGLE_OAUTH2_CLIENT_SECRET or None,
         scopes=['https://www.googleapis.com/auth/gmail.readonly'],
+        expiry=email_account.token_expiry,
     )
 
     # Refresh if expired
@@ -65,17 +66,17 @@ def get_gmail_service(email_account: EmailAccount):
                 "Token refresh failed for Gmail account %s (#%s): %s",
                 email_account.email_address, email_account.pk, e,
             )
-            return None
+            return None, None
         email_account.access_token = creds.token
         email_account.token_expiry = creds.expiry
         email_account.save(update_fields=['access_token', 'token_expiry'])
 
     try:
         service = build('gmail', 'v1', credentials=creds)
-        return service
+        return service, creds
     except Exception as e:
         logger.error("Failed to build Gmail service for %s: %s", email_account.email_address, e)
-        return None
+        return None, None
 
 
 def list_messages(service, query='', max_results=100, page_token=None):
@@ -221,7 +222,7 @@ def sync_gmail_account(email_account: EmailAccount, max_emails: int = 100) -> in
     Returns:
         Number of new emails created.
     """
-    service = get_gmail_service(email_account)
+    service, creds = get_gmail_service(email_account)
     if not service:
         return 0
 
@@ -287,6 +288,12 @@ def sync_gmail_account(email_account: EmailAccount, max_emails: int = 100) -> in
             "Gmail API error during sync for %s (#%s): %s",
             email_account.email_address, email_account.pk, e,
         )
+
+    # Persist token if it was refreshed by google-auth's auto-refresh on 401
+    if creds.token != email_account.access_token:
+        email_account.access_token = creds.token
+        email_account.token_expiry = creds.expiry
+        email_account.save(update_fields=['access_token', 'token_expiry'])
 
     # Update last synced timestamp
     email_account.last_synced_at = datetime.now(timezone.utc)
