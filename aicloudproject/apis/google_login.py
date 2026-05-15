@@ -119,7 +119,7 @@ def _verify_google_token(token_jwt):
         # - The 'aud' claim matches our client ID
         # - The 'iss' claim is accounts.google.com
         # - The token hasn't expired
-        info = id_token.verify_oauth2_token(token_jwt, request, client_id)
+        info = id_token.verify_oauth2_token(token_jwt, request, client_id, clock_skew_in_seconds=60)
 
         # Optionally also check the issuer
         if info.get("iss") not in [
