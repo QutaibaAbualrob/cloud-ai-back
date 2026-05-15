@@ -18,6 +18,7 @@ from .views import (
     FeedbackLogViewSet,
     AnalyticsViewSet,
 )
+from .google_login import GoogleLogin
 
 router = DefaultRouter()
 router.register(r"profile", UserProfileViewSet, basename="profile")
@@ -29,4 +30,5 @@ router.register(r"analytics", AnalyticsViewSet, basename="analytics")
 
 urlpatterns = [
     path("", include(router.urls)),
+    path("auth/google/", GoogleLogin.as_view(), name="google_login"),
 ]

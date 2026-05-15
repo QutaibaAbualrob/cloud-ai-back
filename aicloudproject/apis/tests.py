@@ -51,7 +51,7 @@ class AuthTests(APITestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(
-            username="existing", password="pass123",
+            username="existing", email="existing@example.com", password="pass123",
         )
 
     def test_register(self):
@@ -68,13 +68,13 @@ class AuthTests(APITestCase):
 
     def test_login(self):
         url = reverse("rest_login")
-        res = self.client.post(url, {"username": "existing", "password": "pass123"})
+        res = self.client.post(url, {"email": "existing@example.com", "password": "pass123"})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("key", res.data)
 
     def test_login_invalid(self):
         url = reverse("rest_login")
-        res = self.client.post(url, {"username": "wrong", "password": "wrong"})
+        res = self.client.post(url, {"email": "wrong@example.com", "password": "wrong"})
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
 

@@ -2,6 +2,7 @@
 # Install: pip install -r requirements.txt
 
 python-dotenv
+pyjwt
 djangorestframework
 dj-rest-auth
 django-allauth
@@ -16,5 +17,5 @@ dj-database-url
 psycopg2-binary
 
 # Optional: background tasks (worker/beat)
-# celery
-# redis
+celery
+redis
