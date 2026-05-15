@@ -104,6 +104,30 @@ class CategorySerializer(serializers.ModelSerializer):
 # ── emails ────────────────────────────────────────────────────────
 
 
+GMAIL_DEFAULT_CATEGORIES = {
+    "CATEGORY_PROMOTIONS": "Promotions",
+    "CATEGORY_SOCIAL": "Social",
+    "CATEGORY_UPDATES": "Updates",
+    "CATEGORY_FORUMS": "Forums",
+    "CATEGORY_PRIMARY": "Primary",
+    "IMPORTANT": "Important",
+}
+
+
+def get_default_category(email):
+    """
+    Derive a provider-assigned category name from Gmail labels (e.g. CATEGORY_PROMOTIONS → "Promotions").
+    Returns None if the email has no provider labels — no default badge is shown in that case.
+    The "Miscellaneous" fallback is only assigned by the LLM classifier when it can't determine a category,
+    not by this utility.
+    """
+    labels = getattr(email, "gmail_labels", None) or []
+    for label in labels:
+        if label in GMAIL_DEFAULT_CATEGORIES:
+            return GMAIL_DEFAULT_CATEGORIES[label]
+    return None
+
+
 class EmailListSerializer(serializers.ModelSerializer):
     """Compact serializer for email list views — no full body."""
 
@@ -113,6 +137,7 @@ class EmailListSerializer(serializers.ModelSerializer):
     category_color = serializers.CharField(
         source="category.color", read_only=True, default=None
     )
+    default_category = serializers.SerializerMethodField()
 
     class Meta:
         model = Email
@@ -120,10 +145,14 @@ class EmailListSerializer(serializers.ModelSerializer):
             "id", "sender_name", "sender_email", "subject",
             "snippet", "gmail_labels", "received_at",
             "category", "category_name", "category_color",
+            "default_category",
             "confidence_score", "is_ai_classified",
             "is_read", "is_archived",
             "summary", "priority", "is_urgent", "has_deadline",
         ]
+
+    def get_default_category(self, obj):
+        return get_default_category(obj)
 
 
 class EmailDetailSerializer(serializers.ModelSerializer):
@@ -135,6 +164,7 @@ class EmailDetailSerializer(serializers.ModelSerializer):
     category_color = serializers.CharField(
         source="category.color", read_only=True, default=None
     )
+    default_category = serializers.SerializerMethodField()
     account_email = serializers.CharField(
         source="email_account.email_address", read_only=True
     )
@@ -147,6 +177,7 @@ class EmailDetailSerializer(serializers.ModelSerializer):
             "subject", "body_text", "body_html", "snippet",
             "received_at",
             "category", "category_name", "category_color",
+            "default_category",
             "confidence_score", "is_ai_classified",
             "is_read", "is_archived",
             "account_email", "created_at",
@@ -154,6 +185,9 @@ class EmailDetailSerializer(serializers.ModelSerializer):
             "has_deadline", "deadline_date", "action_items",
         ]
         read_only_fields = ["id", "created_at"]
+
+    def get_default_category(self, obj):
+        return get_default_category(obj)
 
 
 class EmailCategoryUpdateSerializer(serializers.Serializer):
