@@ -1,6 +1,7 @@
 # Django backend — CloudAI Email Intelligence Platform
 # Install: pip install -r requirements.txt
 
+python-dotenv
 djangorestframework
 dj-rest-auth
 django-allauth
