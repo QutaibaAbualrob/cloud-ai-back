@@ -80,13 +80,25 @@ class CategorySerializer(serializers.ModelSerializer):
             "is_builtin", "display_order", "email_count", "created_at",
         ]
         read_only_fields = ["id", "is_builtin", "created_at"]
+        extra_kwargs = {
+            "slug": {"required": False},
+        }
 
     def get_email_count(self, obj):
         return obj.emails.count()
 
     def create(self, validated_data):
         validated_data["user"] = self.context["request"].user
+        # Auto-generate slug from name if not provided
+        if "slug" not in validated_data or not validated_data.get("slug"):
+            validated_data["slug"] = validated_data["name"].lower().replace(" ", "-")
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        # Auto-generate slug from name if name changed and slug not explicitly set
+        if "name" in validated_data and "slug" not in validated_data:
+            validated_data["slug"] = validated_data["name"].lower().replace(" ", "-")
+        return super().update(instance, validated_data)
 
 
 # ── emails ────────────────────────────────────────────────────────
@@ -172,4 +184,4 @@ class FeedbackLogSerializer(serializers.ModelSerializer):
             "email_subject", "email_sender",
             "is_applied", "created_at",
         ]
-        read_only_fields = "__all__"
+        read_only_fields = fields

@@ -79,12 +79,17 @@ class EmailAccountViewSet(viewsets.ModelViewSet):
     def sync(self, request, pk=None):
         """Trigger a manual sync for this email account."""
         account = self.get_object()
-        from .tasks import sync_account
-
-        sync_account.delay(account.id)
-        return Response(
-            {"status": "sync_enqueued", "account_id": account.id}
-        )
+        try:
+            from .tasks import sync_account
+            sync_account.delay(account.id)
+            return Response(
+                {"status": "sync_enqueued", "account_id": account.id}
+            )
+        except ImportError:
+            return Response(
+                {"status": "celery_not_available", "account_id": account.id},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
 
 # ── categories ────────────────────────────────────────────────────
@@ -203,10 +208,15 @@ class EmailViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["post"])
     def batch_categorize(self, request):
         """Trigger AI classification for all uncategorized emails."""
-        from .tasks import classify_uncategorized_emails
-
-        classify_uncategorized_emails.delay(request.user.id)
-        return Response({"status": "classification_enqueued"})
+        try:
+            from .tasks import classify_uncategorized_emails
+            classify_uncategorized_emails.delay(request.user.id)
+            return Response({"status": "classification_enqueued"})
+        except ImportError:
+            return Response(
+                {"status": "celery_not_available"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
 
 # ── feedback ──────────────────────────────────────────────────────

@@ -16,6 +16,8 @@ from googleapiclient.errors import HttpError
 from google.auth.transport.requests import Request
 from django.utils.timezone import make_aware
 
+from django.conf import settings
+
 from .models import EmailAccount, Email
 
 logger = logging.getLogger(__name__)
@@ -35,8 +37,8 @@ def get_gmail_service(email_account: EmailAccount):
         token=email_account.access_token,
         refresh_token=email_account.refresh_token,
         token_uri='https://oauth2.googleapis.com/token',
-        client_id=None,  # Load from settings in production
-        client_secret=None,
+        client_id=settings.GOOGLE_OAUTH2_CLIENT_ID or None,
+        client_secret=settings.GOOGLE_OAUTH2_CLIENT_SECRET or None,
         scopes=['https://www.googleapis.com/auth/gmail.readonly'],
     )
 
