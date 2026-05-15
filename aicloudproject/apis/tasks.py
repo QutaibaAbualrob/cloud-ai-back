@@ -46,6 +46,7 @@ def sync_account(account_id: int):
             classify_uncategorized_emails.delay(account.user_id)
     except Exception as e:
         logger.error("Sync failed for account %s: %s", account_id, e, exc_info=True)
+        raise  # re-raise so Celery marks the task as FAILURE (not "succeeded")
 
 
 @shared_task

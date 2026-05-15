@@ -33,6 +33,20 @@ def get_gmail_service(email_account: EmailAccount):
     Returns:
         googleapiclient.discovery.Resource or None if tokens are invalid.
     """
+    # Bail early if tokens are missing — no point building credentials
+    # that can't survive an API call (google-auth auto-refreshes on 401,
+    # and without a refresh_token that refresh will crash).
+    if not email_account.access_token or not email_account.refresh_token:
+        logger.warning(
+            "Gmail account %s (#%s) is missing OAuth tokens (access=%s, refresh=%s). "
+            "Reconnect the account to obtain valid tokens.",
+            email_account.email_address,
+            email_account.pk,
+            "present" if email_account.access_token else "missing",
+            "present" if email_account.refresh_token else "missing",
+        )
+        return None
+
     creds = Credentials(
         token=email_account.access_token,
         refresh_token=email_account.refresh_token,
@@ -44,7 +58,14 @@ def get_gmail_service(email_account: EmailAccount):
 
     # Refresh if expired
     if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+        try:
+            creds.refresh(Request())
+        except Exception as e:
+            logger.error(
+                "Token refresh failed for Gmail account %s (#%s): %s",
+                email_account.email_address, email_account.pk, e,
+            )
+            return None
         email_account.access_token = creds.token
         email_account.token_expiry = creds.expiry
         email_account.save(update_fields=['access_token', 'token_expiry'])
@@ -53,7 +74,7 @@ def get_gmail_service(email_account: EmailAccount):
         service = build('gmail', 'v1', credentials=creds)
         return service
     except Exception as e:
-        logger.error(f"Failed to build Gmail service for {email_account.email_address}: {e}")
+        logger.error("Failed to build Gmail service for %s: %s", email_account.email_address, e)
         return None
 
 
@@ -214,54 +235,60 @@ def sync_gmail_account(email_account: EmailAccount, max_emails: int = 100) -> in
     created_count = 0
     page_token = None
 
-    while created_count < max_emails:
-        response = list_messages(service, query='in:inbox', max_results=50, page_token=page_token)
-        messages = response.get('messages', [])
+    try:
+        while created_count < max_emails:
+            response = list_messages(service, query='in:inbox', max_results=50, page_token=page_token)
+            messages = response.get('messages', [])
 
-        if not messages:
-            break
-
-        for msg_summary in messages:
-            if created_count >= max_emails:
+            if not messages:
                 break
 
-            msg_id = msg_summary['id']
-            if msg_id in existing_ids:
-                continue
+            for msg_summary in messages:
+                if created_count >= max_emails:
+                    break
 
-            full_msg = get_message(service, msg_id)
-            if not full_msg:
-                continue
+                msg_id = msg_summary['id']
+                if msg_id in existing_ids:
+                    continue
 
-            headers = extract_headers(full_msg)
-            body_text, body_html, snippet = extract_body(full_msg)
-            received_at = parse_date(headers.get('date'))
+                full_msg = get_message(service, msg_id)
+                if not full_msg:
+                    continue
 
-            Email.objects.create(
-                user=email_account.user,
-                email_account=email_account,
-                external_id=msg_id,
-                thread_id=full_msg.get('threadId', ''),
-                sender_name=headers.get('sender_name', ''),
-                sender_email=headers.get('sender_email', ''),
-                recipient_email=headers.get('recipient_email', ''),
-                subject=headers.get('subject', ''),
-                received_at=received_at,
-                body_text=body_text,
-                body_html=body_html,
-                snippet=snippet,
-            )
+                headers = extract_headers(full_msg)
+                body_text, body_html, snippet = extract_body(full_msg)
+                received_at = parse_date(headers.get('date'))
 
-            existing_ids.add(msg_id)
-            created_count += 1
+                Email.objects.create(
+                    user=email_account.user,
+                    email_account=email_account,
+                    external_id=msg_id,
+                    thread_id=full_msg.get('threadId', ''),
+                    sender_name=headers.get('sender_name', ''),
+                    sender_email=headers.get('sender_email', ''),
+                    recipient_email=headers.get('recipient_email', ''),
+                    subject=headers.get('subject', ''),
+                    received_at=received_at,
+                    body_text=body_text,
+                    body_html=body_html,
+                    snippet=snippet,
+                )
 
-        page_token = response.get('nextPageToken')
-        if not page_token:
-            break
+                existing_ids.add(msg_id)
+                created_count += 1
+
+            page_token = response.get('nextPageToken')
+            if not page_token:
+                break
+    except Exception as e:
+        logger.error(
+            "Gmail API error during sync for %s (#%s): %s",
+            email_account.email_address, email_account.pk, e,
+        )
 
     # Update last synced timestamp
     email_account.last_synced_at = datetime.now(timezone.utc)
     email_account.save(update_fields=['last_synced_at'])
 
-    logger.info(f"Synced {created_count} new emails for {email_account.email_address}")
+    logger.info("Synced %s new emails for %s", created_count, email_account.email_address)
     return created_count

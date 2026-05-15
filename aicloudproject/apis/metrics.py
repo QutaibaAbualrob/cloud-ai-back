@@ -11,11 +11,12 @@ Accuracy definition:
     the AI classified in that same window.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.db.models import Count
 from django.db.models.functions import TruncDate
+from django.utils import timezone
 
 from .models import Email, FeedbackLog
 
@@ -36,7 +37,7 @@ def user_accuracy(user: User, days: int = 30) -> dict:
             "window_days":       int,
         }
     """
-    since = datetime.now() - timedelta(days=days)
+    since = timezone.now() - timedelta(days=days)
 
     total = Email.objects.filter(
         user=user,
@@ -81,7 +82,7 @@ def accuracy_timeline(user: User, days: int = 30) -> list:
             ...
         ]
     """
-    since = datetime.now() - timedelta(days=days)
+    since = timezone.now() - timedelta(days=days)
 
     # Classifications per day
     classified_qs = (

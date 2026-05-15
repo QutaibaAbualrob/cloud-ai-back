@@ -18,7 +18,7 @@ from .views import (
     FeedbackLogViewSet,
     AnalyticsViewSet,
 )
-from .google_login import google_login
+from .google_login import google_login, google_oauth_url, google_oauth_callback
 
 router = DefaultRouter()
 router.register(r"profile", UserProfileViewSet, basename="profile")
@@ -31,4 +31,6 @@ router.register(r"analytics", AnalyticsViewSet, basename="analytics")
 urlpatterns = [
     path("", include(router.urls)),
     path("auth/google/", google_login, name="google_login"),
+    path("auth/google/oauth-url/", google_oauth_url, name="google_oauth_url"),
+    path("auth/google/callback/", google_oauth_callback, name="google_oauth_callback"),
 ]

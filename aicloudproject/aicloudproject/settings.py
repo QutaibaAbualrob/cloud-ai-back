@@ -255,7 +255,13 @@ GOOGLE_OAUTH2_CLIENT_ID = os.environ.get('GOOGLE_OAUTH2_CLIENT_ID', '')
 GOOGLE_OAUTH2_CLIENT_SECRET = os.environ.get('GOOGLE_OAUTH2_CLIENT_SECRET', '')
 GOOGLE_OAUTH2_REDIRECT_URI = os.environ.get(
     'GOOGLE_OAUTH2_REDIRECT_URI',
-    'http://localhost:8000/api/accounts/gmail/callback/',
+    'http://localhost:8000/api/auth/google/callback/',
+)
+
+# Where to redirect the browser after OAuth completes (frontend URL)
+GOOGLE_OAUTH_FRONTEND_REDIRECT = os.environ.get(
+    'GOOGLE_OAUTH_FRONTEND_REDIRECT',
+    'http://localhost:5173/accounts',
 )
 
 GMAIL_SCOPES = [

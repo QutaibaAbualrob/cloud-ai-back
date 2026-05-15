@@ -81,6 +81,7 @@ class EmailAccount(models.Model):
 
     class Meta:
         unique_together = [("user", "email_address")]
+        ordering = ["-created_at"]
 
     def __str__(self):
         return f"{self.email_address} ({self.provider})"
