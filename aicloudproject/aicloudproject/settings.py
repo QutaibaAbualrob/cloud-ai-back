@@ -162,7 +162,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'mydb',
         'USER': 'root',
-        'PASSWORD': 'aicloudproject$',
+        'PASSWORD': 'cloudaiproject$',
         'HOST': 'cloudaiproj.c23064s4m7e9.us-east-1.rds.amazonaws.com',
         'PORT': '3306',
     }
