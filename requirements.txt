@@ -1,0 +1,21 @@
+# Django backend — CloudAI Email Intelligence Platform
+# Install: pip install -r requirements.txt
+
+python-dotenv
+pyjwt
+djangorestframework
+dj-rest-auth
+django-allauth
+django-cors-headers
+requests
+django-filter
+google-api-python-client
+google-auth-oauthlib
+gunicorn
+uvicorn
+dj-database-url
+psycopg2-binary
+mysqlclient
+# Optional: background tasks (worker/beat)
+celery
+redis
